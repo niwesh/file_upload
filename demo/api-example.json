@@ -1,0 +1,42 @@
+[
+    {
+        "_id": "58c4a4393bc60cf0b0a66143",
+        "src": "images/01.jpg",
+        "width": 1200,
+        "height": 600,
+        "size": 369711,
+        "name": "01.jpg",
+        "type": "image/jpeg",
+        "description": "Optional image description for image 1"
+    },
+    {
+        "_id": "58c47bbc6a96e76262fd573e",
+        "src": "images/02.jpg",
+        "width": 640,
+        "height": 480,
+        "size": 118924,
+        "name": "02.jpg",
+        "type": "image/jpeg",
+        "description": "Optional image description  for image 2"
+    },
+    {
+       "_id": "58c47c7fc8eb764f75c6894a",
+        "src": "images/03.jpg",
+        "width": 259,
+        "height": 194,
+        "size": 11881,
+        "name": "03.jpg",
+        "type": "image/jpeg",
+        "description": "Optional image description  for image 3"
+    },
+    {
+       "_id": "58c4a2189e318abb9a023bb5",
+        "src": "images/04.jpg",
+        "width": 2560,
+        "height": 1440,
+        "size": 285042,
+        "name": "04.jpg",
+        "type": "image/jpeg",
+        "description": "Optional image description  for image 4"
+    }
+]
