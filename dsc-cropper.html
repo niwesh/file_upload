@@ -1,0 +1,381 @@
+<script src="../cropperjs/dist/cropper.min.js"></script>
+<link rel="import" href="../app-localize-behavior/app-localize-behavior.html">
+<link rel="import" href="../paper-tooltip/paper-tooltip.html">
+<link rel="import" href="../paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../paper-button/paper-button.html">
+<link rel="import" href="../paper-input/paper-input.html">
+<link rel="import" href="../iron-icon/iron-icon.html">
+<link rel="import" href="../iron-image/iron-image.html">
+<link rel="import" href="../paper-toast/paper-toast.html">
+<link rel="import" href="../polymer/polymer.html">
+
+
+<dom-module id="dsc-cropper">
+  <link rel="import" type="css" href="../cropperjs/dist/cropper.min.css">
+
+  <template>
+    <style>
+      :host{
+        display: block;
+        width: 100%;
+        text-align: left;
+      }
+      #wrapper {
+        display: block;
+      }
+      #image {
+        max-width: 100%;
+      }
+
+      #details {
+        display: flex;
+        align-items: flex-end;
+        padding-bottom: 10px;
+      }
+
+      #size-label {
+        margin-left: auto;
+      }
+
+      .rotate90 {
+        -ms-transform: rotate(90deg); /* IE 9 */
+        -webkit-transform: rotate(90deg); /* Chrome, Safari, Opera */
+        transform: rotate(90deg);
+      }
+    </style>
+
+    <div>
+      <div id="details">
+        <div id="file-name">
+          <paper-input
+            id="name"
+            required
+            value="{{name}}"
+            maxlength="50"
+            auto-validate
+            pattern="[a-zA-Z0-9_-]*"
+            error-message="[[localize('Invalid file name')]]">
+            <div suffix>{{ext}}</div>
+          </paper-input>
+        </div>
+        <div id="size-label">
+          <span id="width">{{width}}</span> x <span id="height">{{height}}</span> px
+        </div>
+      </div>
+
+      <div id="wrapper">
+        <img id="image" src="[[src]]" on-load="_render">
+      </div>
+
+      <paper-icon-button icon="image-upload-icons:open-with" on-click="setDragModeMove" id="bt-mode-move"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-mode-move" position="bottom" animation-delay="0">[[localize('Drag mode move')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:crop" on-click="setDragModeCrop" id="bt-mode-crop"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-mode-crop" position="bottom" animation-delay="0">[[localize('Drag mode crop')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:zoom-in" on-click="zoomIn" id="bt-zoom-in"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-zoom-in" position="bottom" animation-delay="0">[[localize('Zoom in')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:zoom-out" on-click="zoomOut" id="bt-zoom-out"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-zoom-out" position="bottom" animation-delay="0">[[localize('Zoom out')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:rotate-left" on-click="rotateLeft" id="bt-rotate-left"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-rotate-left" position="bottom" animation-delay="0">[[localize('Rotate left')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:rotate-right" on-click="rotateRight" id="bt-rotate-rigth"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-rotate-rigth" position="bottom" animation-delay="0">[[localize('Rotate right')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:flip" on-click="scaleX" id="bt-flip-horizontal"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-flip-horizontal" position="bottom" animation-delay="0">[[localize('Flip horizontal')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:flip" on-click="scaleY" class="rotate90" id="bt-flip-vertical"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-flip-vertical" position="bottom" animation-delay="0">[[localize('Flip vertical')]]</paper-tooltip>
+      <paper-icon-button icon="image-upload-icons:refresh" on-click="reset" id="bt-reset"></paper-icon-button>
+      <paper-tooltip id="tooltip-help" for="bt-reset" position="bottom" animation-delay="0">[[localize('Reset')]]</paper-tooltip>
+
+      <paper-input
+        id="description"
+        label="[[localize('Description')]]"
+        value="{{description}}"
+        maxlength="100"
+        auto-validate
+        pattern="[a-zA-ZçÇãÃáÁàÀéÉêÊíÍõÕóÓôÔúÚ0-9 .,;!@%_-]*"
+        error-message="[[localize('Invalid description')]]">
+      </paper-input>
+
+      <paper-toast id="toast" class="dsc-toast"></paper-toast>
+    </div>
+
+  </template>
+
+  <script>
+    Polymer({
+
+      behaviors: [
+        Polymer.AppLocalizeBehavior,
+      ],
+
+      is: 'dsc-cropper',
+
+      properties: {
+
+        /**
+         * Index of global array item.
+         */
+        index: {
+          type: String,
+        },
+
+        /**
+         * File mime type
+         */
+        type: {
+          type: String,
+        },
+
+        /**
+         * Image file name
+         */
+        name: {
+          type: String,
+        },
+
+        ext: {
+          type: String,
+        },
+
+        /**
+         * Image description
+         */
+        description: {
+          type: String,
+        },
+
+        /**
+         * The URL of the image to be cropped.
+         */
+        src: {
+          type: String,
+          reflectToAttribute: true,
+        },
+
+        /**
+         * Src image crop result.
+         */
+        srcCrop: {
+          type: String,
+          reflectToAttribute: true,
+        },
+
+        /**
+         * Width selection reflect.
+         */
+        width: {
+          type: Number,
+        },
+
+        /**
+         * Height selection reflect.
+         */
+        height: {
+          type: Number,
+        },
+      },
+
+      ready: function() {
+        if (! String.format) {
+          String.format = function(format) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            return format.replace(/{(\d+)}/g, function(match, number) {
+              return typeof args[number] != 'undefined'
+                ? args[number]
+                : match
+              ;
+            });
+          };
+        }
+      },
+
+      _render: function() {
+        if (! window.Cropper) {
+          return new Error('Cropper has not been initialized');
+        }
+
+        if (this._cropper) {
+          this._cropper.destroy();
+        }
+
+        // The options object as specified in https://github.com/fengyuanchen/cropperjs#options
+        var cropjsOptions = {
+          aspectRatio: this.aspectRatio,
+          autoCropArea: 1, // initial selection, cropperjs default is 0.8
+        };
+
+        var options = Object.assign({}, cropjsOptions);
+        var wrapper = this.$.wrapper;
+
+        options._ready = options.ready;
+        options.ready = function(e) {
+          wrapper.removeAttribute('style');
+          if (options._ready) {
+            return options._ready(e);
+          }
+        };
+
+        wrapper.setAttribute('style', 'max-height: ' + this.$.image.offsetHeight + 'px');
+
+        if (!this._scoped) {
+          this._scoped = true;
+          this.scopeSubtree(wrapper, true);
+        }
+
+        var that = this;
+
+        options.crop = function(e) {
+          that.width = parseInt(e.detail.width);
+          that.height = parseInt(e.detail.height);
+        };
+
+        this._cropper = new window.Cropper(this.$.image, options);
+        // parse file name
+        var dotPos = this.name.lastIndexOf('.');
+        var name = this.name.substr(0, dotPos);
+        var ext = this.name.substr(dotPos, this.name.legth);
+        this.name = name;
+        this.ext = ext;
+      },
+
+      /**
+       * Validate all.
+       *
+       * @return {boolean}
+       */
+      _validate: function() {
+        var messages = [];
+        if (this.width > this.maxWidth) {
+          messages.push(String.format(this.localize('Image requires maximum width {0}px'), this.maxWidth));
+        }
+        if (this.width < this.minWidth) {
+          messages.push(String.format(this.localize('Image requires minimum width {0}px'), this.minWidth));
+        }
+        if (this.height > this.maxHeight) {
+          messages.push(String.format(this.localize('Image requires maximum height {0}px'), this.maxHeight));
+        }
+        if (this.height < this.minHeight) {
+          messages.push(String.format(this.localize('Image requires minimum height {0}px'), this.minHeight));
+        }
+        if (! this.$.name.validate()) {
+          messages.push('Invalid name');
+          this.$.name.focus();
+        }
+        if (! this.$.description.validate()) {
+          messages.push(this.localize('Invalid description'));
+          this.$.description.focus();
+        }
+        if (messages.length > 0) {
+          var strMessage = '';
+          for (var i = 0; i < messages.length; i++) {
+            strMessage += messages[i] + '<br>';
+          }
+          this._showToast(strMessage, 'red');
+          return false;
+        }
+        return true;
+      },
+
+      /**
+       * Show message for user
+       *
+       * @param {String} message message text.
+       * @param {String} color string override background color toast.
+       *
+       * @return {undefined}
+       */
+      _showToast: function(message, color) {
+        var toast = this.$.toast;
+        /* if(message == null) {
+            message = this.localize('success_message');
+        } */
+        // toast.text = message;
+        toast.innerHTML = message;
+
+        this.customStyle['--paper-toast-background-color'] = color == null
+        ? 'green' :
+            color;
+
+        Polymer.updateStyles();
+        toast.show();
+      },
+
+      /**
+       * Returns object crop data. Ex
+       * {height:384, rotate:0,scaleX:1, scaleY:1, width:384, x:128, y:48}
+       *
+       * @param {String} key Name of the searched property. Null for all.
+       *
+       * @return {object}
+       */
+      _getCropData: function(key) {
+        var data = this._cropper.getData();
+        if (key && typeof data[key] != 'undefined') {
+          return data[key];
+        }
+        return data;
+      },
+
+      setDragModeMove: function() {
+        this._cropper.setDragMode('move');
+      },
+
+      setDragModeCrop: function() {
+        this._cropper.setDragMode('crop');
+      },
+
+      zoomIn: function() {
+        this._cropper.zoom(0.1);
+      },
+
+      zoomOut: function() {
+        this._cropper.zoom(-0.1);
+      },
+
+      reset: function() {
+        this._cropper.reset();
+      },
+
+      rotateLeft: function() {
+        this._cropper.rotate(-45);
+      },
+
+      rotateRight: function() {
+        this._cropper.rotate(45);
+      },
+
+      scaleX: function() {
+        var x = this._getCropData('scaleX');
+        this._cropper.scaleX(x * -1);
+      },
+
+      scaleY: function() {
+        var y = this._getCropData('scaleY');
+        this._cropper.scaleY(y * -1);
+      },
+
+      crop: function() {
+        var data = this._cropper.getCroppedCanvas().toDataURL(this.type, 0.8);
+        var bytes = Math.round(data.length * 3 / 4);
+        var result = {
+          index: this.index,
+          src: data,
+          width: parseInt(this._getCropData('width')),
+          height: parseInt(this._getCropData('height')),
+          size: bytes,
+          name: this.name + this.ext,
+          description: this.description,
+        };
+
+        if (this._validate() == true) {
+          this.fire('crop-result', result);
+        }
+      },
+
+      attached: function() {
+        this.loadResources(this.resolveUrl('locales.json'));
+      },
+
+    });
+  </script>
+</dom-module>

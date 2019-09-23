@@ -1,0 +1,808 @@
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../app-localize-behavior/app-localize-behavior.html">
+<link rel="import" href="../paper-tooltip/paper-tooltip.html">
+<link rel="import" href="../iron-icon/iron-icon.html">
+<link rel="import" href="../paper-button/paper-button.html">
+<link rel="import" href="../paper-dialog/paper-dialog.html">
+<link rel="import" href="../neon-animation/animations/scale-up-animation.html">
+<link rel="import" href="../neon-animation/animations/fade-out-animation.html">
+<link rel="import" href="../paper-spinner/paper-spinner.html">
+
+<link rel="import" href="dsc-image-upload-icons.html">
+<link rel="import" href="dsc-upload-item.html">
+<link rel="import" href="dsc-cropper.html">
+
+<dom-module id="dsc-polymer-image-upload">
+
+  <template>
+
+    <style>
+      :host {
+        @apply(--paper-font-common-base);
+      }
+
+      #dsc-image-upoload {
+        position: relative;
+      }
+
+      #tooltip-help {
+        width: 230px;
+        text-align: left;
+      }
+
+      #spinnerOverlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #eeeeee;
+        z-index: 10;
+        opacity: 0.4;
+      }
+
+      #spinnerContainer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 20;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #spinnerOverlay[hidden],
+      #spinnerContainer[hidden] {
+        display: none;
+      }
+
+      #itensContainer {
+        margin-top: 15px;
+      }
+
+      #container {
+        max-width: 500px;
+      }
+
+      #upload-header {
+        display: flex;
+        align-items: center;
+      }
+
+      #btn-select {
+        margin-right: 20px;
+      }
+
+      #help {
+        width: 17px;
+        height: 17px;
+      }
+
+      #label-qtd {
+        margin-left: auto;
+        padding-right: 7px;
+        font-size: 12px;
+      }
+
+      /* drag styles */
+      #itensContainer > div {
+        border: 2px solid transparent;
+      }
+
+      #itensContainer > [dragstart] {
+        opacity: 0.4;
+      }
+
+      #itensContainer > [over] {
+        border: 2px dashed #333;
+      }
+    </style>
+
+    <div id="dsc-image-upoload">
+
+      <div id="spinnerOverlay" hidden$="[[!isLoading]]"></div>
+      <div id="spinnerContainer" hidden$="[[!isLoading]]">
+        <paper-spinner active$="[[isLoading]]"></paper-spinner>
+      </div>
+
+      <input type="file" id="browse" hidden multiple on-change="_readFiles" accept="image/*">
+
+      <div id="preview"></div>
+
+      <div id="upload-header">
+        <paper-button id="btn-select" disabled="[[qtdLimitReached]]" raised class="custom indigo" on-click="_selectFiles">
+          <iron-icon icon="image-upload-icons:file-upload"></iron-icon>
+          [[localize('SELECT_FILES')]]
+        </paper-button>
+        <div id="label-qtd">
+          <iron-icon id="help" icon="image-upload-icons:help-outline"></iron-icon>
+          <paper-tooltip id="tooltip-help" for="help" position="bottom" animation-delay="0">
+            [[localize('The resulting images must have the following attributes')]]:<br>
+            - <b>[[localize('Width')]]</b> [[localize('between')]] <b>{{minWidth}}</b> [[localize('and')]] <b>{{maxWidth}}</b> px;<br>
+            - <b>[[localize('Height')]]</b> [[localize('between')]] <b>{{minHeight}}</b> [[localize('and')]] <b>{{maxHeight}}</b> px;<br>
+            - [[localize('Max file size')]] <b>{{maxFileSize}}</b> bytes;
+          </paper-tooltip>
+          {{qtdFiles}} [[localize('of')]] {{maxFiles}}
+        </div>
+      </div>
+
+      <div id="itensContainer">
+        <template id="itemsRepeat" is="dom-repeat" items="[[items]]">
+          <div
+              data-index$="[[index]]"
+              draggable="true"
+              on-dragstart="_dragStart"
+              on-dragover="_dragOver"
+              on-dragend="_dragEnd"
+              on-dragleave="_dragLeave">
+            <dsc-upload-item
+                language="[[language]]"
+                index=[[index]]
+                errors="[[_paramErrors(item)]]"
+                src="[[item.src]]"
+                name="[[item.name]]"
+                width="[[item.width]]"
+                height="[[item.height]]"
+                ratio="[[_getLabelAspectRatioBySize(item.width, item.height)]]"
+                size="[[_getLabelSize(item.size)]]"
+                description="[[item.description]]"
+                on-item-preview="_previewHandler"
+                on-item-edit="_editHandler"
+                on-item-remove="_removeHandler"></dsc-upload-item>
+            </div>
+        </template>
+      </div>
+
+      <paper-dialog id="dialogCrop" modal>
+        <div id="container"></div>
+        <div class="buttons">
+          <paper-button dialog-confirm autofocus>[[localize('Cancel')]]</paper-button>
+          <paper-button id="dialog-crop-confirm">[[localize('Apply')]]</paper-button>
+        </div>
+      </paper-dialog>
+
+      <paper-dialog id="dialogPreview" modal>
+        <div id="previewContainer"></div>
+        <div class="buttons">
+          <paper-button dialog-confirm autofocus>[[localize('Close')]]</paper-button>
+        </div>
+      </paper-dialog>
+
+    </div>
+  </template>
+
+  <script>
+    Polymer({
+      is: 'dsc-polymer-image-upload',
+
+      behaviors: [
+        Polymer.AppLocalizeBehavior,
+      ],
+
+      properties: {
+
+        /**
+         * Define language tranlated. Actual options (en,br,es)
+         */
+        language: {
+          value: 'en',
+          type: String,
+        },
+
+        /**
+         * Indicate loadind state to show spinner.
+         */
+        isLoading: {
+          type: Boolean,
+          value: false,
+        },
+
+        /**
+         * Flag indicate have one or more errors.
+         */
+        hasError: {
+          type: Boolean,
+          value: false,
+        },
+
+        /**
+         * Flag indicate have one or more itens.
+         */
+        hasImages: {
+          type: Boolean,
+          value: false,
+        },
+
+        /**
+         * Total itens processed.
+         */
+        qtdFiles: {
+          type: Number,
+          computed: '_computedQtdFiles(items.length)',
+          observer: '_qtdFilesChanged',
+          notify: true,
+        },
+
+        /**
+         * Quantity of files on rocessing queue.
+         */
+        qtdPendingFiles: {
+          type: Number,
+          value: 0,
+          observer: '_qtdPendingFilesChanged',
+        },
+
+        /**
+         * True if qtd limit 'maxFiles' is reached.
+         */
+        qtdLimitReached: {
+          type: Boolean,
+          value: false,
+        },
+
+        /**
+         * Maximum number of files.
+         */
+        maxFiles: {
+          type: String,
+          value: 5,
+        },
+
+        /**
+         * Max file size in bytes
+         */
+        maxFileSize: {
+          type: Number,
+          value: 1000 * 1024, // 1MB
+        },
+
+        /**
+         * Min image width in px.
+         */
+        minWidth: {
+          type: Number,
+          value: 320,
+        },
+
+        /**
+         * Max image width in px.
+         */
+        maxWidth: {
+          type: Number,
+          value: 1920,
+        },
+
+        /**
+         * Min image height in px.
+         */
+        minHeight: {
+          type: Number,
+          value: 240,
+        },
+
+        /**
+         * Max image height in px.
+         */
+        maxHeight: {
+          type: Number,
+          value: 1080,
+        },
+
+        /**
+         * Force aspect ratio. Ex: 16:9, 4:3, 1:1, 2:3 or 0 for free.
+         */
+        aspectRatio: {
+          type: String,
+          value: '1:1',
+          observer: '_aspectRatioChanged',
+        },
+
+        /**
+         * Numeric calculate aspect ratio by aspectRatio propertie. Ex: 4:3 equal 0.666666667.
+         * Nan for free.
+         */
+        computedAspectRatio: {
+          type: Number,
+        },
+
+        /**
+         * Flag to image file parse.
+         */
+        useBlob: {
+          type: Boolean,
+        },
+
+        /**
+         * Cropper plugin object.
+         * @see https://fengyuanchen.github.io/cropperjs/
+         */
+        dscCropper: {
+          type: Object,
+        },
+
+        /**
+         * Array of images object data and info. Ex:
+         *  [
+         *    {
+         *      src: "data:image/jpeg;base64,/9j/4AAQSkZJRgtgsrtgserfdhdfh...",
+         *      width: 640,
+         *      height: 480,
+         *      size: 198542,
+         *      name: 'teste.jpg',
+         *      type: 'image/jpg',
+         *      description: "Optional image description"
+         *      errors: ['low-width', 'high-size']
+         *    },
+         *    ...
+         *  ]
+         */
+        items: {
+          type: Array,
+          value: [],
+          notify: true,
+          reflectToAttribute: true,
+        },
+
+        dragOrigin: {
+          type: Number,
+        },
+
+        dragDestiny: {
+          type: Number,
+        },
+
+      },
+
+      _dragStart: function(event) {
+        var el = event.currentTarget;
+        var index = el.getAttribute('data-index');
+        Polymer.dom(el).setAttribute('dragstart', '');
+        this.dragOrigin = index;
+      },
+
+      /* _dragEnter: function(event) {
+        var el = event.currentTarget;
+        console.log('_dragEnter', el.getAttribute('data-index'));
+      }, */
+
+      _dragOver: function(event) {
+        var el = event.currentTarget;
+        var index = el.getAttribute('data-index');
+        Polymer.dom(el).setAttribute('over', '');
+        this.dragDestiny = index;
+        if (event.preventDefault) {
+          event.preventDefault(); // Necessary. Allows us to drop.
+        }
+        event.dataTransfer.dropEffect = 'move';  // See the section on the DataTransfer object.
+
+        return false;
+      },
+
+      _dragLeave: function(event) {
+        var el = event.currentTarget;
+        Polymer.dom(el).removeAttribute('over');
+        this.dragDestiny = undefined;
+      },
+
+      _dragEnd: function(event) {
+        var el = event.currentTarget;
+        Polymer.dom(el).removeAttribute('dragstart');
+        if (this.dragDestiny != undefined) {
+          var destiny = Polymer.dom(this.$.itensContainer).querySelector('[data-index="' + this.dragDestiny +'"]');
+          Polymer.dom(destiny).removeAttribute('over');
+        }
+        this._changePositionEndDrag();
+        this.dragOrigin = undefined;
+        this.dragDestiny = undefined;
+      },
+
+      _changePositionEndDrag: function() {
+        if (this.dragOrigin != undefined && this.dragDestiny != undefined) {
+          this.set('items', this.arrayMove(this.get('items'), this.dragOrigin, this.dragDestiny));
+          this.$.itemsRepeat.render(); // force refresh
+        }
+      },
+
+      _paramErrors: function(item) {
+        return item.errors || [];
+      },
+
+      arrayMove: function(array, oldIndex, newIndex) {
+        var arrLength = array.length;
+        if (newIndex >= arrLength || newIndex < 0) {
+          return array;
+        }
+        while (oldIndex < 0) {
+          oldIndex += arrLength;
+        }
+        while (newIndex < 0) {
+          newIndex += arrLength;
+        }
+        if (newIndex >= arrLength) {
+          var k = newIndex - arrLength;
+          while ((k--) + 1) {
+            array.push(undefined);
+          }
+        }
+        array.splice(newIndex, 0, array.splice(oldIndex, 1)[0]);
+        return array;
+      },
+
+      _previewHandler: function(event) {
+        var index = parseInt(event.detail);
+        var windowHeight = window.innerHeight - 200;
+        var that = this;
+        // iron image
+        var image = new Image();
+        image.setAttribute('style', 'display:block;max-width:100%;max-height:' + windowHeight + 'px;');
+        image.onload = function() {
+          // that.$.previewContainer.innerHTML = '';
+          Polymer.dom(that.$.previewContainer).innerHTML = '';
+          // that.$.previewContainer.appendChild(this);
+          Polymer.dom(that.$.previewContainer).appendChild(this);
+          that.$.dialogPreview.open();
+          that.isLoading = false;
+        };
+        image.setAttribute('src', this.get(['items', index]).src);
+      },
+
+      /**
+       * Edit item (open dialog)
+       *
+       * @param {object} event Object of event.
+       */
+      _editHandler: function(event) {
+        var index = parseInt(event.detail);
+        this.set('isLoading', true);
+        var item = this.get(['items', index]);
+        // open dialog
+        this.$.dialogCrop.open();
+        this.dscCropper = document.createElement('dsc-cropper');
+        this.dscCropper.language = this.language;
+        this.dscCropper.index = index;
+        this.dscCropper.type = item.type;
+        this.dscCropper.name = item.name;
+        this.dscCropper.description = item.description;
+        this.dscCropper.src = item.src;
+        this.dscCropper.aspectRatio = this.computedAspectRatio;
+        this.dscCropper.minWidth = this.minWidth;
+        this.dscCropper.maxWidth = this.aspectRamaxWidthtio;
+        this.dscCropper.minHeight = this.minHeight;
+        this.dscCropper.maxHeight = this.maxHeight;
+        this.dscCropper.regions = this.officesRegions;
+        this.dscCropper.cities = this.officesCities;
+        this.listen(this.dscCropper, 'crop-result', '_cropHandler');
+        this.listen(this.$$('#dialog-crop-confirm'), 'tap', 'crop');
+        Polymer.dom(this.$.container).innerHTML = '';
+        Polymer.dom(this.$.container).appendChild(this.dscCropper);
+        this.set('isLoading', false);
+        Polymer.updateStyles();
+      },
+
+      _removeHandler: function(event) {
+        var index = event.detail;
+        this.splice('items', index, 1);
+        this.notifyPath('items', this.items);
+      },
+
+      /**
+       * Trigger hidden input file click.
+       */
+      _selectFiles: function() {
+        this.$.browse.value = '';
+        this.$.browse.click();
+      },
+
+      _qtdFilesChanged: function() {
+        this.set('hasImages', (this.qtdFiles > 0));
+        this.set('qtdLimitReached', (this.qtdFiles >= this.maxFiles));
+      },
+
+      _computedQtdFiles: function(length) {
+        return length;
+      },
+
+      /**
+       * Pending files in queue for processing.
+       */
+      _qtdPendingFilesChanged: function() {
+        this.set('isLoading', (this.qtdPendingFiles > 0));
+      },
+
+      /**
+       * Observer aspectRatio to update calculatedAspectRatio.
+       */
+      _aspectRatioChanged: function() {
+        // TODO: validate format
+        var arr = this.get('aspectRatio').split(':');
+        this.set('computedAspectRatio', parseInt(arr[0]) / parseInt(arr[1]));
+      },
+
+      /**
+       * Proccess files selected in input file.
+       *
+       * @param {object} event Object of event.
+       */
+      _readFiles: function(event) {
+        this.set('isLoading', true);
+        var that = this;
+        // Let's store the FileList Array into a variable:
+        // https://developer.mozilla.org/en-US/docs/Web/API/FileList
+        var files = event.target.files;
+        // Let's create an empty `errors` String to collect eventual errors into:
+        var errors = '';
+        if (! files) {
+          errors += 'File upload not supported by your browser.';
+        }
+        // Check for `files` (FileList) support and if contains at least one file:
+        if (files && files[0]) {
+          this.set('qtdPendingFiles', this.get('qtdPendingFiles') + files.length);
+          // Iterate over every File object in the FileList array
+          for(var i=0; i < files.length; i++) {
+            // Let's refer to the current File as a `file` variable
+            // https://developer.mozilla.org/en-US/docs/Web/API/File
+            var file = files[i];
+            // Test the `file.name` for a valid image extension:
+            // (pipe `|` delimit more image extensions)
+            // The regex can also be expressed like: /\.(png|jpe?g|gif)$/i
+            if ( (/\.(png|jpeg|jpg|gif)$/i).test(file.name) ) {
+              // SUCCESS! It's an image!
+              // Send our image `file` to our `_readImage` function!
+              that._readImage(file);
+            } else {
+              errors += file.name + ' Unsupported Image extension\n';
+            }
+          }
+        }
+        // Notify the user for any errors (i.e: try uploading a .txt file)
+        if (errors) {
+          console.error(errors);
+        }
+      },
+
+      /**
+       * Generate image and add item from imput file queue.
+       *
+       * @param {object} file Object of item.
+       */
+      _readImage: function(file) {
+        var that = this;
+        // Create a new FileReader instance
+        // https://developer.mozilla.org/en/docs/Web/API/FileReader
+        var reader = new FileReader();
+        // Once a file is successfully readed:
+        reader.addEventListener('load', function() {
+          var image = new Image();
+          image.addEventListener('load', function() {
+            var imgInfo = {
+              name: file.name,
+              width: image.width,
+              height: image.height,
+              type: file.type,
+              size: file.size,
+              src: image.src,
+              ratio: that._getAspectRatioBySize(image.width, image.height),
+            };
+            that._addItem(imgInfo);
+            // If we set the variable `useBlob` to true:
+            // (Data-URLs can end up being really large
+            // `src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAA...........etc`
+            // Blobs are usually faster and the image src will hold a shorter blob name
+            // src="blob:http%3A//example.com/2a303acf-c34c-4d0a-85d4-2136eef7d723"
+            if (that.useBlob) {
+              // Free some memory for optimal performance
+              window.URL.revokeObjectURL(image.src);
+            }
+            // decrease pending qtd
+            that.qtdPendingFiles--;
+          });
+          image.src = that.useBlob ? window.URL.createObjectURL(file) : reader.result;
+          image.removeEventListener('load', function() {});
+        });
+        // https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsDataURL
+        reader.readAsDataURL(file);
+        reader.removeEventListener('load', function() {});
+      },
+
+      /**
+       * Add item to array and call render ui.
+       *
+       * @param {object} data Object of item info.
+       */
+      _addItem: function(data) {
+        if (this.qtdLimitReached === false) {
+          this.push('items', data);
+        }
+        this._validateAll();
+      },
+
+      /**
+       * Calculate greatest common divisor for purposes of presentation of
+       * aspect ratio.
+       *
+       * @param {number} width Width size.
+       * @param {number} height Height size.
+       *
+       * @return {number} GCD of aspect ratio.
+       */
+      _gcdBySize: function(width, height) {
+        return (height == 0) ? width : this._gcdBySize(height, width % height);
+      },
+
+      /**
+       * Calculate greatest common divisor for purposes of presentation of
+       * aspect ratio.
+       *
+       * @param {number} width Width size.
+       * @param {number} height Height size.
+       *
+       * @return {number} Calculated aspect ratio.
+       */
+      _getAspectRatioBySize: function(width, height) {
+        var gcd = this._gcdBySize(width, height);
+        return (width / gcd) / (height / gcd);
+      },
+
+      /**
+       * Return aspectratio human redable. Ex: '4:3'.
+       *
+       * @param {number} width Width size.
+       * @param {number} height Height size.
+       *
+       * @return {string}
+       */
+      _getLabelAspectRatioBySize: function(width, height) {
+        var gcd = this._gcdBySize(width, height);
+        return width / gcd + ':' + height / gcd;
+      },
+
+      /**
+       * Return human redable size lebal by bytes size.
+       *
+       * @param {number} bytes Size in bytes.
+       *
+       * @return {string}
+       */
+      _getLabelSize: function(bytes) {
+        var sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        if (bytes == 0) return '0 Byte';
+        var i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+        return Math.round(bytes / Math.pow(1024, i), 2) + ' ' + sizes[i];
+      },
+
+      /**
+       * Set errors on items array and UI.
+       */
+      _validateAll: function() {
+        var auxHasError = false;
+        // each all itens
+        for(var i = 0; i < this.items.length; i++) {
+          // create array of erros
+          var itemErrors = [];
+          if (this.maxWidth > 0 && this.items[i].width > this.maxWidth) {
+            itemErrors.push('high-width');
+          }
+          if (this.minWidth > 0 && this.items[i].width < this.minWidth) {
+            itemErrors.push('low-width');
+          }
+          if (this.maxHeight > 0 && this.items[i].height > this.maxHeight) {
+            itemErrors.push('high-height');
+          }
+          if (this.minHeight > 0 && this.items[i].height < this.minHeight) {
+            itemErrors.push('low-height');
+          }
+          if (this.items[i].size > this.maxFileSize) {
+            itemErrors.push('high-size');
+          }
+          if (! /^[0-9a-zA-Z\_\-\.]+$/.test(this.items[i].name)) {
+            itemErrors.push('pattern-name');
+          }
+          if (! /^[a-zA-ZçÇãÃáÁàÀéÉêÊíÍõÕóÓôÔúÚ0-9 .,;!@%_-]+$/.test(this.items[i].description)) {
+            itemErrors.push('pattern-description');
+          }
+          // aspect ratio
+          var ratio = this._getAspectRatioBySize(this.items[i].width, this.items[i].height);
+          var ratioDiff = Math.abs(ratio - this.get('computedAspectRatio'));
+          if (ratioDiff > 0.02) {
+            itemErrors.push('different-ratio');
+          }
+          var count = 0;
+          for (var j = 0; j < this.items.length; j++) {
+            if (this.items[i].name == this.items[j].name) {
+              count ++;
+            }
+          }
+          if (count > 1) {
+            itemErrors.push('repeated-name');
+          }
+          // set errors on items objects
+          if (itemErrors.length > 0) {
+            this.set('items.' + i + '.errors', itemErrors);
+            auxHasError = true;
+          }
+        }
+        this.set('hasError', auxHasError);
+      },
+
+      /**
+       * Event caled after crop result ok. Update items array and UI.
+       *
+       * @param {object} event Object of event.
+       */
+      _cropHandler: function(event) {
+        var item = event.detail;
+        delete item[index];
+        var index = item.index;
+        // preserv original id
+        var id = this.get('items.' + index)._id;
+        if (id) {
+          item._id = id;
+        }
+        // set changed flag
+        item.changed = true;
+        this.set('items.' + index, item);
+        this.$.dialogCrop.close();
+        this.dscCropper = {};
+        this._validateAll();
+      },
+
+      /**
+       * Dialog Aplly click
+       */
+      crop: function() {
+        this.dscCropper.crop();
+      },
+
+      /**
+       * On component ready.
+       */
+      ready: function() {
+        window.URL = window.URL || window.webkitURL;
+        this.useBlob = false && window.URL; // Set to `true` to use Blob instead of Data-URL
+        this._aspectRatioChanged();
+      },
+
+      attached: function() {
+        this.loadResources(this.resolveUrl('locales.json'));
+      },
+
+      /**
+       * Public function to fill existent items into component.
+       *
+       * @param {array} items Array of intems objects.
+       */
+      setData: function(items) {
+        // TODO: validate param
+        this.set('items', items);
+        this._validateAll();
+      },
+
+      /**
+       * Public function that returns JSON object of items.
+       * It is recommended to check the 'isValid' method before getting the items.
+       *
+       * @return {array} Array of intems objects.
+       */
+      getData: function() {
+        var clone = JSON.parse(JSON.stringify(this.items));
+        clone.forEach(function(v) {
+          delete v.errors;
+        });
+        return clone;
+      },
+
+      /**
+       * Public function to validade items.
+       *
+       * @return {boolean}
+       */
+      isValid: function() {
+        return ! this.get('hasError');
+      },
+
+    });
+  </script>
+
+</dom-module>
